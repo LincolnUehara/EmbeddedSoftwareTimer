@@ -3,37 +3,34 @@
  *
  * @brief Implementation of Software Timer.
  *
+ * This project is licensed under the MIT License.
+ *
  * Copyright (c) 2018, Lincoln Uehara
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- * * Redistributions of source code must retain the above copyright notice, this
- *   list of conditions and the following disclaimer.
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
  *
- * * Redistributions in binary form must reproduce the above copyright notice,
- *   this list of conditions and the following disclaimer in the documentation
- *   and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
-
 #include "soft_timer.h"
-#include "soft_timer_HW.c"
+#include "hmcu_timer.c"
 
 /*****************************************************************************
  * Private constants.
@@ -107,15 +104,15 @@ void soft_timer_init(void){
 	list_head_tail.last = NULL;
 	soft_timer_initialized = true;
 
-	/* Initialize registers. */
-	_st_CNTREG_setCountdown(0);
-	_st_RLDREG_setReloadValue(0);
-	_st_CTRLREG_repeatDisable();
-	_st_CTRLREG_stopHWTimer();
-	_st_CTRLREG_enableIRQ();
+	/* Initialize hardware timer. */
+	_hmcu_init();
+	_hmcu_setCountdown(0);
+	_hmcu_setPrescaler(1);
+	_hmcu_stopTimer();
+	_hmcu_disableIRQ();
 }
 
-void soft_timer_create(soft_timer_t **pp_timer){
+void soft_timer_create(soft_timer_t *p_timer){
 
 	tmr_instance * tmp_ptr;
 
@@ -125,32 +122,26 @@ void soft_timer_create(soft_timer_t **pp_timer){
 	}
 
 	/* If the double pointer is addressing to NULL, just return. */
-	if(pp_timer == NULL){
+	if(p_timer == NULL){
 		return;
 	}
 
-	while(*pp_timer != NULL){
+	/* If the number of already existing instances surpasses the limit,
+	 * just return. */
+	if(list_items_qty >= SOFT_TIMER_MAX_INSTANCES){
+		return;
+	}
 
-		/* If the number of already existing instances surpasses the limit,
-		 * just return. */
-		if(list_items_qty >= SOFT_TIMER_MAX_INSTANCES){
-			return;
-		}
+	/* Obtain the address of respective timer instance, if it already
+	 * exists. If not yet (returns NULL), go to the conditional to
+	 * create a new instance. */
+	tmp_ptr = _st_LIST_whereInstance(p_timer);
 
-		/* Obtain the address of respective timer instance, if it already
-		 * exists. If not yet (returns NULL), go to the conditional to
-		 * create a new instance. */
-		tmp_ptr = _st_LIST_whereInstance(*pp_timer);
+	if(tmp_ptr == NULL){
 
-		if(tmp_ptr == NULL){
-
-			_st_CTRLREG_disableIRQ();
-			_st_LIST_createInstance(*pp_timer);
-			_st_CTRLREG_enableIRQ();
-		}
-
-		/* Move the pointer to the next timer instance to be created. */
-		pp_timer++;
+		_hmcu_disableIRQ();
+		_st_LIST_createInstance(p_timer);
+		_hmcu_enableIRQ();
 	}
 }
 
@@ -225,16 +216,16 @@ soft_timer_status_t soft_timer_start(soft_timer_t *p_timer){
 	 * queue of execution, and then start hardware timer and enable IRQ
 	 * again. The conditional is to avoid pointing to NULL because of
 	 * interruption in the middle of this function. */
-	_st_CTRLREG_disableIRQ();
-	_st_CTRLREG_stopHWTimer();
+	_hmcu_disableIRQ();
+	_hmcu_stopTimer();
 	if(tmp_ptr->inUse){
-		_st_CTRLREG_startHWTimer();
-		_st_CTRLREG_enableIRQ();
+		_hmcu_startTimer();
+		_hmcu_enableIRQ();
 		return SOFT_TIMER_STATUS_INVALID_STATE;
 	}
 	_st_QUEUE_addInstance(tmp_ptr);
-	_st_CTRLREG_startHWTimer();
-	_st_CTRLREG_enableIRQ();
+	_hmcu_startTimer();
+	_hmcu_enableIRQ();
 
 	return SOFT_TIMER_STATUS_SUCCESS;
 }
@@ -268,21 +259,21 @@ soft_timer_status_t soft_timer_stop(soft_timer_t *p_timer){
 	 * queue of execution, and then start hardware timer and enable IRQ
 	 * again. The conditional is to avoid pointing to NULL because of
 	 * interruption in the middle of this function. */
-	_st_CTRLREG_disableIRQ();
-	_st_CTRLREG_stopHWTimer();
+	_hmcu_disableIRQ();
+	_hmcu_stopTimer();
 	if(!tmp_ptr->inUse){
-		_st_CTRLREG_startHWTimer();
-		_st_CTRLREG_enableIRQ();
+		_hmcu_startTimer();
+		_hmcu_enableIRQ();
 		return SOFT_TIMER_STATUS_INVALID_STATE;
 		}
 	_st_QUEUE_removeInstance(tmp_ptr);
-	_st_CTRLREG_startHWTimer();
-	_st_CTRLREG_enableIRQ();
+	_hmcu_startTimer();
+	_hmcu_enableIRQ();
 
 	return SOFT_TIMER_STATUS_SUCCESS;
 }
 
-void soft_timer_destroy(soft_timer_t **pp_timer){
+void soft_timer_destroy(soft_timer_t *p_timer){
 	
 	tmr_instance * tmp_ptr;
 
@@ -292,26 +283,20 @@ void soft_timer_destroy(soft_timer_t **pp_timer){
 	}
 
 	/* If the double pointer is addressing to NULL, just return. */
-	if(pp_timer == NULL){
+	if(p_timer == NULL){
 		return;
 	}
 
-	while(*pp_timer != NULL){
+	/* Obtain the address of respective timer instance. If it exists
+	 * and is not in use (is not on queue of execution), run the
+	 * conditional to destroy it. */
+	tmp_ptr = _st_LIST_whereInstance(p_timer);
 
-		/* Obtain the address of respective timer instance. If it exists
-		 * and is not in use (is not on queue of execution), run the
-		 * conditional to destroy it. */
-		tmp_ptr = _st_LIST_whereInstance(*pp_timer);
+	if((tmp_ptr != NULL) && (!tmp_ptr->inUse)){
 
-		if((tmp_ptr != NULL) && (!tmp_ptr->inUse)){
-
-			_st_CTRLREG_disableIRQ();
-			_st_LIST_destroyInstance(*pp_timer);
-			_st_CTRLREG_enableIRQ();
-		}
-
-		/* Move the pointer to the next timer instance to be destroyed. */
-		pp_timer++;
+		_hmcu_disableIRQ();
+		_st_LIST_destroyInstance(p_timer);
+		_hmcu_enableIRQ();
 	}
 }
 
@@ -319,8 +304,8 @@ void soft_timer_irq_handler(void){
 
 	/* Disable and execute the callback function. Then update the countdown
 	 * of all items on the queue. */
-	_st_CTRLREG_disableIRQ();
-	_st_CTRLREG_stopHWTimer();
+	_hmcu_disableIRQ();
+	_hmcu_stopTimer();
 	queue_sorted[0]->timeout_cb(queue_sorted[0]->p_timer);
 	_st_QUEUE_updateCountdown();
 
@@ -353,8 +338,8 @@ void soft_timer_irq_handler(void){
 
 	/* If there is item on queue, set the registers and start it. */
 	_st_QUEUE_parserAndSet();
-	_st_CTRLREG_startHWTimer();
-	_st_CTRLREG_enableIRQ();
+	_hmcu_startTimer();
+	_hmcu_enableIRQ();
 }
 
 /*****************************************************************************
@@ -512,7 +497,7 @@ static void	_st_QUEUE_updateCountdown(void){
 
 	/* Check the current prescaler to atribute a value to a constant to
 	 * be multiplied to countdown value.  */
-	prescalerFlag = _st_CTRLREG_readPrescaler();
+	prescalerFlag = _hmcu_readPrescaler();
 
 	if(prescalerFlag == 1){
 		prescalerConstant = 1;
@@ -523,7 +508,7 @@ static void	_st_QUEUE_updateCountdown(void){
 	}
 
 	/* Update countdown variable of every item. */
-	cdValue = (last_updated_value - (_st_CNTREG_currentCountdown()*prescalerConstant));
+	cdValue = (last_updated_value - (_hmcu_readCountdown()*prescalerConstant));
 	for(i = 0 ; i < queue_items_qty ; i++){
 		queue_sorted[i]->countdown -= cdValue;
 	}
@@ -582,24 +567,24 @@ static void	_st_QUEUE_parserAndSet(void){
 
 	cntValue_1 = (uint16_t)((queue_sorted[0]->countdown)%10000);
 	if(cntValue_1 != 0){
-		_st_CTRLREG_setPrescaler(1);
-		_st_CNTREG_setCountdown(cntValue_1);
+		_hmcu_setPrescaler(1);
+		_hmcu_setCountdown(cntValue_1);
 		last_updated_value = cntValue_1;
 		return;
 	}
 
 	cntValue_10 = (uint16_t)((queue_sorted[0]->countdown)%100000);
 	if(cntValue_10 != 0){
-		_st_CTRLREG_setPrescaler(10);
-		_st_CNTREG_setCountdown((cntValue_10)/10);
+		_hmcu_setPrescaler(10);
+		_hmcu_setCountdown((cntValue_10)/10);
 		last_updated_value = cntValue_10;
 		return;
 	}
 
 	cntValue_100 = (uint16_t)((queue_sorted[0]->countdown)%1000000);
 	if(cntValue_100 != 0){
-		_st_CTRLREG_setPrescaler(100);
-		_st_CNTREG_setCountdown((cntValue_100)/100);
+		_hmcu_setPrescaler(100);
+		_hmcu_setCountdown((cntValue_100)/100);
 		last_updated_value = cntValue_100;
 		return;
 	}
