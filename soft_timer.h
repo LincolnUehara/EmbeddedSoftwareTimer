@@ -29,23 +29,7 @@
 #ifndef __SOFT_TIMER_H__
 #define __SOFT_TIMER_H__
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
-
-/*****************************************************************************
- * Public constants.
- *****************************************************************************/
-
-/**
- * @brief Maximum number of simultaneously allocated software timer instances.
- */
-#define SOFT_TIMER_MAX_INSTANCES 10
-
-/**
- * @brief Maximum timeout value in milliseconds for a software timer.
- */
-#define SOFT_TIMER_MAX_RELOAD_MS 100000000
+#include "hmcu_timer.h"
 
 /*****************************************************************************
  * Public types.
@@ -55,13 +39,6 @@
  * @brief Forward declaration of software timer instance.
  */
 typedef struct soft_timer soft_timer_t;
-
-/**
- * @brief
- */
-typedef struct soft_timer{
-	uint16_t value;
-}soft_timer;
 
 /**
  * @brief Type for timeout callbacks.
@@ -83,11 +60,11 @@ typedef enum soft_timer_status
 /*****************************************************************************
  * Public functions.
  *****************************************************************************/
-void hmcu_timer_irq_handler(void);
+
 /**
  * @brief Initialize software timer module.
  */
-void soft_timer_init(void);
+extern void soft_timer_init(void);
 
 /**
  * @brief Allocate and initialize software timer instance.
@@ -95,7 +72,7 @@ void soft_timer_init(void);
  * @param pp_timer Output parameter: Pointer to newly created software timer
  *                 instance.
  */
-void soft_timer_create(soft_timer_t *p_timer);
+extern void soft_timer_create(soft_timer_t *p_timer);
 
 /**
  * @brief Configure countdown timer.
@@ -108,10 +85,10 @@ void soft_timer_create(soft_timer_t *p_timer);
  *
  * @return Operation status. Check @ref soft_timer_status_t.
  */
-soft_timer_status_t soft_timer_set(soft_timer_t          *p_timer,
-                                   soft_timer_callback_t  timeout_cb,
-                                   uint32_t               reload_ms,
-                                   bool                   repeat);
+extern soft_timer_status_t soft_timer_set(soft_timer_t          *p_timer,
+										  soft_timer_callback_t  timeout_cb,
+										  uint32_t               reload_ms,
+										  bool                   repeat);
 
 /**
  * @brief Start timer.
@@ -120,7 +97,7 @@ soft_timer_status_t soft_timer_set(soft_timer_t          *p_timer,
  *
  * @return Operation status. Check @ref soft_timer_status_t.
  */
-soft_timer_status_t soft_timer_start(soft_timer_t *p_timer);
+extern soft_timer_status_t soft_timer_start(soft_timer_t *p_timer);
 
 /**
  * @brief Stop timer.
@@ -129,7 +106,7 @@ soft_timer_status_t soft_timer_start(soft_timer_t *p_timer);
  *
  * @return Operation status. Check @ref soft_timer_status_t.
  */
-soft_timer_status_t soft_timer_stop(soft_timer_t *p_timer);
+extern soft_timer_status_t soft_timer_stop(soft_timer_t *p_timer);
 
 /**
  * @brief Deallocate software timer instance.
@@ -137,6 +114,11 @@ soft_timer_status_t soft_timer_stop(soft_timer_t *p_timer);
  * @param pp_timer Input / Output parameter: Pointer to destroyed software
  *                 timer instance.
  */
-void soft_timer_destroy(soft_timer_t *p_timer);
+extern void soft_timer_destroy(soft_timer_t *p_timer);
+
+/**
+ * @brief
+ */
+extern void soft_timer_irq_handler(void);
 
 #endif /** __SOFT_TIMER_H__ */

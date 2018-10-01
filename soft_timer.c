@@ -30,17 +30,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "soft_timer.h"
-#include "hmcu_timer.c"
-
-/*****************************************************************************
- * Private constants.
- *****************************************************************************/
-
-
-/*****************************************************************************
- * Private macros.
- *****************************************************************************/
-
+#include "hmcu_timer.h"
 
 /*****************************************************************************
  * Private types.
@@ -71,6 +61,7 @@ static tmr_instance			* queue_sorted[SOFT_TIMER_MAX_INSTANCES];
 static uint8_t				queue_items_qty = 0;
 static uint16_t				last_updated_value = 0;
 static bool					soft_timer_initialized = false;
+static bool					soft_timer_irq_handled = false;
 
 /*****************************************************************************
  * Prototypes for private functions.
@@ -212,20 +203,26 @@ soft_timer_status_t soft_timer_start(soft_timer_t *p_timer){
     }
 
 	/* If all the conditions are OK, disable IRQ and stop hardware timer,
-	 * check if the item is already in use in the queue, add it in the
-	 * queue of execution, and then start hardware timer and enable IRQ
-	 * again. The conditional is to avoid pointing to NULL because of
-	 * interruption in the middle of this function. */
+	 * check if the item is already in use on the queue. If yes, return
+	 * invalid state. */
 	_hmcu_disableIRQ();
 	_hmcu_stopTimer();
 	if(tmp_ptr->inUse){
-		_hmcu_startTimer();
-		_hmcu_enableIRQ();
+		if(!soft_timer_irq_handled){
+			_hmcu_startTimer();
+			_hmcu_enableIRQ();
+		}
 		return SOFT_TIMER_STATUS_INVALID_STATE;
 	}
+
+	/* Add the item in the queue of execution. */
 	_st_QUEUE_addInstance(tmp_ptr);
-	_hmcu_startTimer();
-	_hmcu_enableIRQ();
+
+	/* If the IRQ is not handled, start hardware timer and enable IRQ again. */
+	if(!soft_timer_irq_handled){
+		_hmcu_startTimer();
+		_hmcu_enableIRQ();
+	}
 
 	return SOFT_TIMER_STATUS_SUCCESS;
 }
@@ -255,20 +252,26 @@ soft_timer_status_t soft_timer_stop(soft_timer_t *p_timer){
 	}
 
 	/* If all the conditions are OK, disable IRQ and stop hardware timer,
-	 * check if the item is not in use in the queue, remove it from the
-	 * queue of execution, and then start hardware timer and enable IRQ
-	 * again. The conditional is to avoid pointing to NULL because of
-	 * interruption in the middle of this function. */
+	 * check if the item is not in use on the queue. If not, return
+	 * invalid state. */
 	_hmcu_disableIRQ();
 	_hmcu_stopTimer();
 	if(!tmp_ptr->inUse){
+		if(!soft_timer_irq_handled){
+			_hmcu_startTimer();
+			_hmcu_enableIRQ();
+		}
+		return SOFT_TIMER_STATUS_INVALID_STATE;
+	}
+
+	/* Remove the item from the queue of execution. */
+	_st_QUEUE_removeInstance(tmp_ptr);
+
+	/* If the IRQ is not handled, start hardware timer and enable IRQ again. */
+	if(!soft_timer_irq_handled){
 		_hmcu_startTimer();
 		_hmcu_enableIRQ();
-		return SOFT_TIMER_STATUS_INVALID_STATE;
-		}
-	_st_QUEUE_removeInstance(tmp_ptr);
-	_hmcu_startTimer();
-	_hmcu_enableIRQ();
+	}
 
 	return SOFT_TIMER_STATUS_SUCCESS;
 }
@@ -302,12 +305,16 @@ void soft_timer_destroy(soft_timer_t *p_timer){
 
 void soft_timer_irq_handler(void){
 
-	/* Disable and execute the callback function. Then update the countdown
-	 * of all items on the queue. */
+	/* Atribute true to IRQ handled and disable it and stop the hardware
+	 * timer. */
+	soft_timer_irq_handled = true;
 	_hmcu_disableIRQ();
 	_hmcu_stopTimer();
-	queue_sorted[0]->timeout_cb(queue_sorted[0]->p_timer);
+
+	/* Update the countdown of all items on the queue, and execute the
+	 * callback function. */
 	_st_QUEUE_updateCountdown();
+	queue_sorted[0]->timeout_cb(queue_sorted[0]->p_timer);
 
 	/* Check if the first item's countdown reached to zero. If yes, but
 	 * is set to repeat, reload the value and sort the queue. If yes
@@ -326,6 +333,7 @@ void soft_timer_irq_handler(void){
 
 			if(queue_items_qty == 0){
 
+				soft_timer_irq_handled = false;
 				return;
 
 			}else{
@@ -340,6 +348,7 @@ void soft_timer_irq_handler(void){
 	_st_QUEUE_parserAndSet();
 	_hmcu_startTimer();
 	_hmcu_enableIRQ();
+	soft_timer_irq_handled = false;
 }
 
 /*****************************************************************************
@@ -450,12 +459,18 @@ static tmr_instance * _st_LIST_whereInstance(soft_timer_t * p_timer){
 static void _st_QUEUE_addInstance(tmr_instance * tmr_inst){
 
 	/* Update the countdown values of every item in the queue. */
-	_st_QUEUE_updateCountdown();
+	if(!soft_timer_irq_handled){
+		_st_QUEUE_updateCountdown();
+	}
 
-	/* Attribute the address, set that it is used at queue, and increment
-	 * the number of existing items at the queue. */
+	/* Attribute the address, set that it is used at queue, and update the
+	 * countdown value, if it was used before. */
 	queue_sorted[queue_items_qty] = tmr_inst;
 	queue_sorted[queue_items_qty]->inUse = true;
+	queue_sorted[queue_items_qty]->countdown =
+				queue_sorted[queue_items_qty]->reload_ms;
+
+	/* Increment the number of existing items at the queue. */
 	queue_items_qty++;
 
 	/* Organize the queue order, set the registers and start the hardware
@@ -508,7 +523,7 @@ static void	_st_QUEUE_updateCountdown(void){
 	}
 
 	/* Update countdown variable of every item. */
-	cdValue = (last_updated_value - (_hmcu_readCountdown()*prescalerConstant));
+	cdValue = _hmcu_readCountdown()*prescalerConstant;
 	for(i = 0 ; i < queue_items_qty ; i++){
 		queue_sorted[i]->countdown -= cdValue;
 	}
