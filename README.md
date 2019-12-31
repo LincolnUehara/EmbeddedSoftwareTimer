@@ -3,9 +3,9 @@
 [![License](https://img.shields.io/github/license/LincolnUehara/EmbeddedSoftwareTimer)](https://github.com/LincolnUehara/EmbeddedSoftwareTimer/blob/master/LICENSE)
 ![Maintenance](https://img.shields.io/maintenance/no/2018)
 
-### Purpose of code
+### Purpose
 
-This code was intended to study how to implement oftware timer abstraction for embedded systems. Since I did not like the idea of using "tick", I have tried to use timers and interruptions to manage it.
+This code was intended to study how to implement a software timer abstraction layer for embedded systems. Since I did not like the idea of using "tick", I have tried to use timers and interruptions to manage it.
 I have tested on Tiva TM4C123 board with LEDs and it worked, and I believe that will work on other boards too.
 
 ### How to use it
